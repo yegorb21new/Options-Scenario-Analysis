@@ -106,6 +106,43 @@ scenarios = build_scenario_grid(
     option_type=str(row["option_type"]), current_mid=float(row["mid"]), spot_shocks=spot_shocks, iv_shocks=iv_shocks, time_shifts=time_shifts,
 )
 selected_time = st.selectbox("Time shift for heatmaps", list(time_shifts.keys()))
+selected_days_elapsed = time_shifts[selected_time]
+shocked_T = max((dte - selected_days_elapsed) / 365.0, 0.0)
+
+st.markdown("**Selected contract summary (for heatmap validation)**")
+summary_df = pd.DataFrame([
+    {
+        "contract_symbol": contract,
+        "option_type": row["option_type"],
+        "expiration": row["expiration"],
+        "days_to_expiration": dte,
+        "strike": float(row["strike"]),
+        "underlying_price": float(spot),
+        "moneyness": float(row["moneyness"]),
+        "current_bid": float(row["bid"]),
+        "current_ask": float(row["ask"]),
+        "current_mid": float(row["mid"]),
+        "base_implied_volatility": float(row["impliedVolatility"]),
+        "selected_time_shift": selected_time,
+        "shocked_time_to_expiration_years": shocked_T,
+    }
+])
+st.dataframe(
+    summary_df.style.format(
+        {
+            "strike": "{:.2f}",
+            "underlying_price": "{:.2f}",
+            "moneyness": "{:.3f}",
+            "current_bid": "{:.2f}",
+            "current_ask": "{:.2f}",
+            "current_mid": "{:.2f}",
+            "base_implied_volatility": "{:.2%}",
+            "shocked_time_to_expiration_years": "{:.4f}",
+        }
+    ),
+    use_container_width=True,
+)
+
 st.plotly_chart(pnl_heatmap(scenarios, selected_time, "pnl_dollars", "P&L Dollars"), use_container_width=True)
 st.plotly_chart(pnl_heatmap(scenarios, selected_time, "pnl_percent", "P&L Percent"), use_container_width=True)
 
