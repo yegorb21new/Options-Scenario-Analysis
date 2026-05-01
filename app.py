@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-from src.analytics import add_rv_and_relative_scores, build_scenario_grid, compute_greeks, compute_realized_volatility
+from src.analytics import add_rv_and_relative_scores, build_scenario_grid, compute_greeks, compute_intrinsic_extrinsic, compute_realized_volatility
 from src.data import fetch_option_chain, fetch_underlying_and_expirations
 from src.plots import iv_smile, iv_surface, pnl_heatmap
 
@@ -39,6 +39,7 @@ hist = __import__("yfinance").Ticker(ticker).history(period="1y", interval="1d")
 rv20 = compute_realized_volatility(hist["Close"], 20)
 rv30 = compute_realized_volatility(hist["Close"], 30)
 rv60 = compute_realized_volatility(hist["Close"], 60)
+chain = compute_intrinsic_extrinsic(chain, spot)
 chain = add_rv_and_relative_scores(chain, rv20, rv30, rv60)
 
 st.write(f"**Spot:** {spot:.2f}  |  **Last updated:** {last_updated}")
@@ -49,10 +50,13 @@ c3.metric("Realized Vol (60d)", f"{rv60:.2%}" if not np.isnan(rv60) else "N/A")
 
 with st.sidebar:
     opt_type_sel = st.selectbox("Option type", ["both", "call", "put"])
-    max_spread = st.slider("Max spread %", 0.0, 1.0, 0.25, 0.01)
-    min_oi = st.number_input("Min open interest", min_value=0, value=0)
-    min_vol = st.number_input("Min volume", min_value=0, value=0)
-    money_rng = st.slider("Moneyness range", 0.3, 2.0, (0.7, 1.3), 0.01)
+    max_spread = st.slider("Max spread %", 0.0, 1.0, 0.15, 0.01)
+    min_oi = st.number_input("Min open interest", min_value=0, value=100)
+    min_vol = st.number_input("Min volume", min_value=0, value=10)
+    min_extrinsic = st.number_input("Min extrinsic value", min_value=0.0, value=0.05, step=0.01)
+    min_extrinsic_pct = st.number_input("Min extrinsic % of mid", min_value=0.0, value=0.02, step=0.01)
+    max_iv = st.number_input("Max implied volatility", min_value=0.1, value=3.00, step=0.05)
+    money_rng = st.slider("Moneyness range", 0.3, 2.0, (0.85, 1.15), 0.01)
     exp_filter = st.multiselect("Expirations", options=sorted(chain["expiration"].unique()), default=sorted(chain["expiration"].unique()))
 
 filtered = chain.copy()
@@ -63,12 +67,15 @@ filtered = filtered[
     & (filtered["openInterest"].fillna(0) >= min_oi)
     & (filtered["volume"].fillna(0) >= min_vol)
     & (filtered["moneyness"].between(money_rng[0], money_rng[1]))
+    & (filtered["extrinsic_value"] >= min_extrinsic)
+    & (filtered["extrinsic_pct_of_mid"] >= min_extrinsic_pct)
+    & (filtered["impliedVolatility"] <= max_iv)
     & (filtered["expiration"].isin(exp_filter))
 ]
 
 st.subheader("Filtered option chain")
-show_cols = ["option_type", "expiration", "days_to_expiration", "lastTradeDate", "minutes_since_last_trade", "strike", "bid", "ask", "mid", "volume", "openInterest", "impliedVolatility", "moneyness", "spread_pct", "inTheMoney"]
-st.dataframe(filtered[show_cols].style.format({"impliedVolatility": "{:.2%}", "spread_pct": "{:.2%}", "moneyness": "{:.3f}", "minutes_since_last_trade": "{:.1f}"}), use_container_width=True)
+show_cols = ["option_type", "expiration", "days_to_expiration", "lastTradeDate", "minutes_since_last_trade", "strike", "bid", "ask", "mid", "intrinsic_value", "extrinsic_value", "extrinsic_pct_of_mid", "volume", "openInterest", "impliedVolatility", "moneyness", "spread_pct", "inTheMoney"]
+st.dataframe(filtered[show_cols].style.format({"impliedVolatility": "{:.2%}", "spread_pct": "{:.2%}", "extrinsic_pct_of_mid": "{:.2%}", "moneyness": "{:.3f}", "minutes_since_last_trade": "{:.1f}"}), use_container_width=True)
 
 x_axis = st.radio("Smile x-axis", ["moneyness", "strike"], horizontal=True)
 st.plotly_chart(iv_smile(filtered, x_axis), use_container_width=True)
@@ -79,11 +86,16 @@ else:
 
 st.subheader("Relative richness/cheapness diagnostics")
 st.caption("Relative value scores are crude diagnostics based on current chain IV, realized volatility, and liquidity. They are not predictions and do not account for earnings, dividends, borrow, jumps, or full volatility history.")
-screen_cols = ["contractSymbol", "option_type", "expiration", "strike", "impliedVolatility", "spread_pct", "iv_zscore_within_expiration", "relative_value_score"]
-st.markdown("**Potentially cheaper by relative IV/liquidity screen**")
-st.dataframe(filtered.sort_values("relative_value_score", ascending=False)[screen_cols].head(15), use_container_width=True)
-st.markdown("**Potentially richer by relative IV/liquidity screen**")
-st.dataframe(filtered.sort_values("relative_value_score", ascending=True)[screen_cols].head(15), use_container_width=True)
+st.caption("Deep ITM/OTM contracts can show unstable implied volatility because small quote or underlying-price differences dominate the remaining extrinsic value. The relative-value screen filters for liquid contracts with meaningful extrinsic value and compares options within similar moneyness buckets.")
+screen_cols = ["contractSymbol", "option_type", "expiration", "moneyness_bucket", "strike", "impliedVolatility", "spread_pct", "extrinsic_value", "extrinsic_pct_of_mid", "iv_zscore_within_expiration", "relative_value_score"]
+rv_eligible = filtered.copy()
+if len(rv_eligible) < 8:
+    st.info("Too few contracts pass the eligibility filters for meaningful relative-value ranking. Try widening filters.")
+else:
+    st.markdown("**Potentially cheaper by relative IV/liquidity screen**")
+    st.dataframe(rv_eligible.sort_values("relative_value_score", ascending=False)[screen_cols].head(15), use_container_width=True)
+    st.markdown("**Potentially richer by relative IV/liquidity screen**")
+    st.dataframe(rv_eligible.sort_values("relative_value_score", ascending=True)[screen_cols].head(15), use_container_width=True)
 
 st.subheader("Scenario P&L")
 st.caption("Scenario prices are theoretical estimates. Actual option prices may differ due to market microstructure, early exercise risk, dividends, skew dynamics, and changes in supply/demand.")
@@ -133,6 +145,9 @@ summary_df = pd.DataFrame([
         "current_ask": float(row["ask"]),
         "current_mid": float(row["mid"]),
         "base_implied_volatility": float(row["impliedVolatility"]),
+        "intrinsic_value": float(row["intrinsic_value"]),
+        "extrinsic_value": float(row["extrinsic_value"]),
+        "extrinsic_pct_of_mid": float(row["extrinsic_pct_of_mid"]),
         "selected_time_shift": selected_time,
         "shocked_time_to_expiration_years": shocked_T,
     }
@@ -147,6 +162,9 @@ st.dataframe(
             "current_ask": "{:.2f}",
             "current_mid": "{:.2f}",
             "base_implied_volatility": "{:.2%}",
+            "intrinsic_value": "{:.2f}",
+            "extrinsic_value": "{:.2f}",
+            "extrinsic_pct_of_mid": "{:.2%}",
             "hours_to_expiration": "{:.2f}",
             "time_to_expiration_years": "{:.6f}",
             "shocked_time_to_expiration_years": "{:.6f}",

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
@@ -22,8 +21,36 @@ def safe_spread_pct(spread: pd.Series, mid: pd.Series) -> pd.Series:
     return result.fillna(0.0)
 
 
+def compute_intrinsic_extrinsic(df: pd.DataFrame, underlying_price: float) -> pd.DataFrame:
+    """Add intrinsic/extrinsic columns for option quotes."""
+    out = df.copy()
+    call_intrinsic = np.maximum(underlying_price - out["strike"], 0.0)
+    put_intrinsic = np.maximum(out["strike"] - underlying_price, 0.0)
+    out["intrinsic_value"] = np.where(out["option_type"] == "call", call_intrinsic, put_intrinsic)
+    out["extrinsic_value"] = out["mid"] - out["intrinsic_value"]
+    out["extrinsic_pct_of_mid"] = (out["extrinsic_value"] / out["mid"].replace(0, np.nan)).replace([np.inf, -np.inf], np.nan).fillna(0.0)
+    return out
+
+
+def assign_moneyness_bucket(m: float) -> str:
+    if m < 0.80:
+        return "<0.80"
+    if m < 0.90:
+        return "0.80-0.90"
+    if m < 0.95:
+        return "0.90-0.95"
+    if m < 1.00:
+        return "0.95-1.00"
+    if m < 1.05:
+        return "1.00-1.05"
+    if m < 1.10:
+        return "1.05-1.10"
+    if m < 1.20:
+        return "1.10-1.20"
+    return ">1.20"
+
+
 def compute_realized_volatility(close: pd.Series, window: int) -> float:
-    """Compute annualized realized volatility from close prices over rolling window."""
     returns = close.pct_change().dropna()
     if len(returns) < window:
         return float("nan")
@@ -31,14 +58,14 @@ def compute_realized_volatility(close: pd.Series, window: int) -> float:
 
 
 def add_rv_and_relative_scores(df: pd.DataFrame, rv20: float, rv30: float, rv60: float) -> pd.DataFrame:
-    """Add IV-RV and relative value diagnostics columns."""
     out = df.copy()
     out["iv_minus_rv_20d"] = out["impliedVolatility"] - rv20
     out["iv_minus_rv_30d"] = out["impliedVolatility"] - rv30
     out["iv_minus_rv_60d"] = out["impliedVolatility"] - rv60
     out["iv_rv_30d_spread"] = out["iv_minus_rv_30d"]
+    out["moneyness_bucket"] = out["moneyness"].apply(assign_moneyness_bucket)
 
-    grp = out.groupby(["expiration", "option_type"])["impliedVolatility"]
+    grp = out.groupby(["expiration", "option_type", "moneyness_bucket"])["impliedVolatility"]
     mean = grp.transform("mean")
     std = grp.transform("std").replace(0, np.nan)
     out["iv_zscore_within_expiration"] = ((out["impliedVolatility"] - mean) / std).fillna(0.0)
@@ -59,7 +86,6 @@ def build_scenario_grid(
     iv_shocks: list[float],
     time_shifts: dict[str, float],
 ) -> pd.DataFrame:
-    """Build scenario grid for theoretical price and P&L."""
     rows = []
     for label, shifted_T in time_shifts.items():
         T = max(shifted_T, 0.0)
@@ -73,7 +99,7 @@ def build_scenario_grid(
                 rows.append(
                     {
                         "time_shift": label,
-                                                "spot_shock": spot_shock,
+                        "spot_shock": spot_shock,
                         "iv_shock": iv_shock,
                         "shocked_underlying": shocked_S,
                         "shocked_iv": shocked_iv,
@@ -87,7 +113,6 @@ def build_scenario_grid(
 
 
 def compute_greeks(S: float, K: float, T: float, r: float, sigma: float, option_type: str) -> dict[str, float]:
-    """Compute standard Black-Scholes Greeks."""
     return {
         "delta": black_scholes_delta(S, K, T, r, sigma, option_type),
         "gamma": black_scholes_gamma(S, K, T, r, sigma),
