@@ -1,3 +1,6 @@
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
 import pandas as pd
 
 from src.data import (
@@ -5,6 +8,7 @@ from src.data import (
     calculate_mid,
     calculate_minutes_since_last_trade,
     calculate_spread_pct,
+    calculate_time_to_expiration_years,
 )
 
 
@@ -18,6 +22,29 @@ def test_calculate_days_to_expiration_handles_tz_aware_input_without_subtraction
     dte = calculate_days_to_expiration("2030-01-17T00:00:00+00:00")
     assert isinstance(dte, int)
     assert dte >= 0
+
+
+def test_same_day_before_close_has_positive_time_to_expiration():
+    now = datetime(2026, 5, 1, 15, 0, tzinfo=ZoneInfo("America/New_York"))
+    t = calculate_time_to_expiration_years("2026-05-01", now=now)
+    assert t > 0
+
+
+def test_same_day_after_close_has_zero_time_to_expiration():
+    now = datetime(2026, 5, 1, 16, 30, tzinfo=ZoneInfo("America/New_York"))
+    t = calculate_time_to_expiration_years("2026-05-01", now=now)
+    assert t == 0
+
+
+def test_future_expiration_positive_and_intraday_decay_directional():
+    t_morning = calculate_time_to_expiration_years(
+        "2026-05-06", now=datetime(2026, 5, 1, 10, 0, tzinfo=ZoneInfo("America/New_York"))
+    )
+    t_afternoon = calculate_time_to_expiration_years(
+        "2026-05-06", now=datetime(2026, 5, 1, 15, 0, tzinfo=ZoneInfo("America/New_York"))
+    )
+    assert t_morning > 0
+    assert t_morning > t_afternoon
 
 
 def test_calculate_mid():

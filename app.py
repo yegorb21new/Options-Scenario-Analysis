@@ -87,6 +87,7 @@ st.dataframe(filtered.sort_values("relative_value_score", ascending=True)[screen
 
 st.subheader("Scenario P&L")
 st.caption("Scenario prices are theoretical estimates. Actual option prices may differ due to market microstructure, early exercise risk, dividends, skew dynamics, and changes in supply/demand.")
+st.caption("If modeled time to expiration is zero, scenario prices collapse to intrinsic value and IV shocks have no effect. Same-day options before the close are modeled using estimated intraday time remaining until 4:00pm ET.")
 if filtered.empty:
     st.warning("No rows available for scenario analysis after filters.")
     st.stop()
@@ -99,15 +100,22 @@ iv_step = st.selectbox("IV shock step (absolute)", [0.02, 0.05], index=1)
 spot_shocks = list(np.arange(-0.20, 0.2001, spot_step))
 iv_shocks = list(np.arange(-0.20, 0.2001, iv_step))
 dte = int(row["days_to_expiration"])
-time_shifts = {"today": 0, "+1 day": 1, "+1 week": 7, "halfway": max(dte // 2, 0), "expiration": dte}
+base_T = float(row["time_to_expiration_years"])
+base_hours = float(row["hours_to_expiration"])
+time_shifts = {
+    "today": base_T,
+    "+1 day": max(base_T - (24.0 / (365.0 * 24.0)), 0.0),
+    "+1 week": max(base_T - (7.0 * 24.0 / (365.0 * 24.0)), 0.0),
+    "halfway to expiration": max(base_T / 2.0, 0.0),
+    "expiration": 0.0,
+}
 
 scenarios = build_scenario_grid(
-    S=spot, K=float(row["strike"]), r=float(r), base_iv=float(row["impliedVolatility"]), days_to_expiration=dte,
+    S=spot, K=float(row["strike"]), r=float(r), base_iv=float(row["impliedVolatility"]), time_to_expiration_years=base_T,
     option_type=str(row["option_type"]), current_mid=float(row["mid"]), spot_shocks=spot_shocks, iv_shocks=iv_shocks, time_shifts=time_shifts,
 )
 selected_time = st.selectbox("Time shift for heatmaps", list(time_shifts.keys()))
-selected_days_elapsed = time_shifts[selected_time]
-shocked_T = max((dte - selected_days_elapsed) / 365.0, 0.0)
+shocked_T = max(time_shifts[selected_time], 0.0)
 
 st.markdown("**Selected contract summary (for heatmap validation)**")
 summary_df = pd.DataFrame([
@@ -116,6 +124,8 @@ summary_df = pd.DataFrame([
         "option_type": row["option_type"],
         "expiration": row["expiration"],
         "days_to_expiration": dte,
+        "hours_to_expiration": base_hours,
+        "time_to_expiration_years": base_T,
         "strike": float(row["strike"]),
         "underlying_price": float(spot),
         "moneyness": float(row["moneyness"]),
@@ -137,7 +147,9 @@ st.dataframe(
             "current_ask": "{:.2f}",
             "current_mid": "{:.2f}",
             "base_implied_volatility": "{:.2%}",
-            "shocked_time_to_expiration_years": "{:.4f}",
+            "hours_to_expiration": "{:.2f}",
+            "time_to_expiration_years": "{:.6f}",
+            "shocked_time_to_expiration_years": "{:.6f}",
         }
     ),
     use_container_width=True,
@@ -146,7 +158,7 @@ st.dataframe(
 st.plotly_chart(pnl_heatmap(scenarios, selected_time, "pnl_dollars", "P&L Dollars"), use_container_width=True)
 st.plotly_chart(pnl_heatmap(scenarios, selected_time, "pnl_percent", "P&L Percent"), use_container_width=True)
 
-T_now = max(dte / 365.0, 0.0)
+T_now = max(base_T, 0.0)
 greeks = compute_greeks(spot, float(row["strike"]), T_now, float(r), float(row["impliedVolatility"]), str(row["option_type"]))
 st.write("**Selected contract details**")
 st.json({

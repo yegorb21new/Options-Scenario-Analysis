@@ -48,7 +48,7 @@ Data in this app comes from `yfinance`/Yahoo public endpoints and is intended fo
 - Differences between this app's displayed quotes and broker live quotes do not necessarily indicate a calculation bug in this project.
 
 ## Black-Scholes assumptions
-This app uses a simplified European Black-Scholes model for scenario pricing. Assumptions include lognormal dynamics, constant volatility/rates, frictionless markets, and no early exercise modeling.
+This app uses a simplified calendar-time European Black-Scholes model for scenario pricing. Time to expiration (T) is computed from exact seconds remaining until 4:00pm ET on the expiration date. Assumptions include lognormal dynamics, constant volatility/rates, frictionless markets, and no early exercise modeling. Results may differ from broker platforms that apply proprietary assumptions, dividend inputs, American exercise adjustments, or trading-time conventions.
 
 ## Relative value score
 The app computes a **relative_value_score** within expiration/option-type groups:

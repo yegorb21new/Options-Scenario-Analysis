@@ -52,17 +52,17 @@ def build_scenario_grid(
     K: float,
     r: float,
     base_iv: float,
-    days_to_expiration: int,
+    time_to_expiration_years: float,
     option_type: str,
     current_mid: float,
     spot_shocks: list[float],
     iv_shocks: list[float],
-    time_shifts: dict[str, int],
+    time_shifts: dict[str, float],
 ) -> pd.DataFrame:
     """Build scenario grid for theoretical price and P&L."""
     rows = []
-    for label, days_elapsed in time_shifts.items():
-        T = max((days_to_expiration - days_elapsed) / 365.0, 0.0)
+    for label, shifted_T in time_shifts.items():
+        T = max(shifted_T, 0.0)
         for spot_shock in spot_shocks:
             shocked_S = S * (1 + spot_shock)
             for iv_shock in iv_shocks:
@@ -73,8 +73,7 @@ def build_scenario_grid(
                 rows.append(
                     {
                         "time_shift": label,
-                        "days_elapsed": days_elapsed,
-                        "spot_shock": spot_shock,
+                                                "spot_shock": spot_shock,
                         "iv_shock": iv_shock,
                         "shocked_underlying": shocked_S,
                         "shocked_iv": shocked_iv,
