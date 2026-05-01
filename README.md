@@ -39,6 +39,14 @@ streamlit run app.py
 ## Data source note
 Data is pulled from Yahoo Finance through `yfinance` (unofficial/public source). This is suitable for research/demo use and may contain delays, missing values, or inconsistencies.
 
+
+## Data Source and Quote Latency
+Data in this app comes from `yfinance`/Yahoo public endpoints and is intended for research/demo workflows.
+
+- Quotes may be delayed or stale relative to live broker feeds.
+- Validate actionable bid/ask levels against your broker/platform (for example, thinkorswim) before any live trading decision.
+- Differences between this app's displayed quotes and broker live quotes do not necessarily indicate a calculation bug in this project.
+
 ## Black-Scholes assumptions
 This app uses a simplified European Black-Scholes model for scenario pricing. Assumptions include lognormal dynamics, constant volatility/rates, frictionless markets, and no early exercise modeling.
 

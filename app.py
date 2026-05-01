@@ -11,6 +11,7 @@ from src.plots import iv_smile, iv_surface, pnl_heatmap
 st.set_page_config(page_title="Options Volatility Surface & Scenario Analytics Dashboard", layout="wide")
 st.title("Options Volatility Surface & Scenario Analytics Dashboard")
 st.caption("Educational research tool. Uses public option-chain data and simplified Black-Scholes assumptions. Not investment advice.")
+st.warning("Market data is sourced from yfinance/Yahoo and may be delayed or stale. Use broker/platform quotes for live trading decisions.")
 
 with st.sidebar:
     ticker = st.text_input("Ticker", value="NVDA").upper().strip()
@@ -66,8 +67,8 @@ filtered = filtered[
 ]
 
 st.subheader("Filtered option chain")
-show_cols = ["option_type", "expiration", "days_to_expiration", "strike", "bid", "ask", "mid", "volume", "openInterest", "impliedVolatility", "moneyness", "spread_pct", "inTheMoney"]
-st.dataframe(filtered[show_cols].style.format({"impliedVolatility": "{:.2%}", "spread_pct": "{:.2%}", "moneyness": "{:.3f}"}), use_container_width=True)
+show_cols = ["option_type", "expiration", "days_to_expiration", "lastTradeDate", "minutes_since_last_trade", "strike", "bid", "ask", "mid", "volume", "openInterest", "impliedVolatility", "moneyness", "spread_pct", "inTheMoney"]
+st.dataframe(filtered[show_cols].style.format({"impliedVolatility": "{:.2%}", "spread_pct": "{:.2%}", "moneyness": "{:.3f}", "minutes_since_last_trade": "{:.1f}"}), use_container_width=True)
 
 x_axis = st.radio("Smile x-axis", ["moneyness", "strike"], horizontal=True)
 st.plotly_chart(iv_smile(filtered, x_axis), use_container_width=True)
