@@ -1,29 +1,16 @@
-# Options Volatility Surface & Scenario Analytics Dashboard
+# Options Market Cockpit (Streamlit)
 
-A portfolio-style **Streamlit research app** for exploring listed options using public Yahoo Finance data via `yfinance`.
+Educational/research dashboard for **ticker-level options context first**, then contract-level drilldown.
 
-## Why this project exists
-This project demonstrates practical options analytics workflows in a transparent, reproducible way:
-- Normalize option-chain data
-- Visualize IV smile/skew and term structure
-- Compare implied and realized volatility
-- Run scenario-based theoretical P&L using Black-Scholes
+## What it does
+- **Today’s Markets**: options activity, research flags, skew extremes, return bar view.
+- **Cockpit**: sortable multi-metric table for returns, RV, IV, VRP, beta/correlation, skew, and liquidity.
+- **Skew Monitor**: ticker-level smile/skew diagnostics for near-30D context.
+- **Option Chain / Scenario P&L**: existing chain filters, IV visuals, intrinsic/extrinsic diagnostics, and scenario pricing.
+- **Methodology / Validation**: formulas, caveats, and assumptions.
 
-> Educational research tool only. Not investment advice.
-
-## Features
-- Ticker input (e.g., NVDA, SPY)
-- Option-chain loading across user-selected upcoming expirations
-- Quality filtering (IV validity, spread/liquidity, moneyness)
-- Interactive IV smile/skew and 3D IV surface charts
-- Realized volatility metrics (20/30/60 day annualized)
-- Relative richness/cheapness diagnostics (crude score)
-- Scenario analytics over spot, IV, and time shifts
-- Black-Scholes Greeks for selected contract
-
-## Screenshots
-- `docs/screenshots/dashboard_overview.png` *(placeholder)*
-- `docs/screenshots/scenario_heatmap.png` *(placeholder)*
+## Why cockpit context helps
+Naive contract-level rankings can be distorted by illiquidity, stale quotes, or deep ITM/OTM mechanics. Ticker-level context (returns, realized vol, implied vol, VRP, skew, liquidity) helps frame diagnostics before contract-level investigation.
 
 ## Setup
 ```bash
@@ -36,32 +23,25 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
-## Data source note
-Data is pulled from Yahoo Finance through `yfinance` (unofficial/public source). This is suitable for research/demo use and may contain delays, missing values, or inconsistencies.
+## Methodology highlights
+- Data source: `yfinance`/Yahoo (public/unofficial; suitable for research/demo).
+- Realized vol: close-to-close return std annualized by `sqrt(252)`.
+- Approx ATM IV: near-ATM options (`~0.97-1.03` moneyness) around target tenors.
+- VRP: `approx_iv - realized_vol` over matched horizons.
+- Skew: OTM put/call IV relative to ATM.
+- Scenario pricing: simplified Black-Scholes with calendar-time T.
+- Time-to-expiration uses seconds to **4:00pm ET** on expiration date.
 
-
-## Data Source and Quote Latency
-Data in this app comes from `yfinance`/Yahoo public endpoints and is intended for research/demo workflows.
-
-- Quotes may be delayed or stale relative to live broker feeds.
-- Validate actionable bid/ask levels against your broker/platform (for example, thinkorswim) before any live trading decision.
-- Differences between this app's displayed quotes and broker live quotes do not necessarily indicate a calculation bug in this project.
-
-## Black-Scholes assumptions
-This app uses a simplified calendar-time European Black-Scholes model for scenario pricing. Time to expiration (T) is computed from exact seconds remaining until 4:00pm ET on the expiration date. Assumptions include lognormal dynamics, constant volatility/rates, frictionless markets, and no early exercise modeling. Results may differ from broker platforms that apply proprietary assumptions, dividend inputs, American exercise adjustments, or trading-time conventions.
-
-## Relative value score
-The app computes a **relative_value_score** within expiration/option-type groups:
-- `iv_zscore_within_expiration`
-- `liquidity_penalty` from spread%
-- `relative_value_score = -iv_zscore_within_expiration - liquidity_penalty`
-
-Higher scores indicate relatively lower IV vs peers with better liquidity; lower scores indicate relatively richer IV and/or weaker liquidity. This is a crude diagnostic, **not** a prediction or recommendation.
+## Limitations
+- Yahoo quotes may be delayed/stale versus broker feeds.
+- No paid OPRA quality feed, no full historical options tape.
+- Simplified assumptions (no full dividend/borrow/jump/early-exercise modeling).
+- Research diagnostics only; not investment advice.
 
 ## Future enhancements
-- Historical IV rank/percentile (if a paid volatility history source is added)
-- Earnings calendar overlays
-- Dividend and American-option adjustments
-- Portfolio-level scenario analysis
-- Cross-ticker comparison views
-- Saved watchlists
+- Paid historical options data and OPRA-quality quotes
+- Earnings calendar overlay
+- Snapshot database for longitudinal changes
+- Historical IV rank/percentile
+- Sector-relative rankings
+- Portfolio-level scenario analytics

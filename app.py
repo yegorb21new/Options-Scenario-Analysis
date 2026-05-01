@@ -2,191 +2,123 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+import plotly.express as px
 import streamlit as st
 
-from src.analytics import add_rv_and_relative_scores, build_scenario_grid, compute_greeks, compute_intrinsic_extrinsic, compute_realized_volatility
+from src.analytics import add_rv_and_relative_scores, build_scenario_grid, compute_greeks, compute_intrinsic_extrinsic
+from src.cockpit import format_cockpit
 from src.data import fetch_option_chain, fetch_underlying_and_expirations
+from src.market_data import load_universe_metrics
 from src.plots import iv_smile, iv_surface, pnl_heatmap
+from src.research_flags import apply_research_flags
 
-st.set_page_config(page_title="Options Volatility Surface & Scenario Analytics Dashboard", layout="wide")
-st.title("Options Volatility Surface & Scenario Analytics Dashboard")
-st.caption("Educational research tool. Uses public option-chain data and simplified Black-Scholes assumptions. Not investment advice.")
-st.warning("Market data is sourced from yfinance/Yahoo and may be delayed or stale. Use broker/platform quotes for live trading decisions.")
+DEFAULT_UNIVERSE = "SPY,QQQ,IWM,DIA,XLF,XLE,XLK,XLV,XLI,XLP,XLY,XLU,XLB,XLRE,XLC,TLT,HYG,LQD,GLD,SLV,USO,UNG,FXI,EEM,IYR,SMH,XBI,KRE,ARKK"
+
+st.set_page_config(page_title="Options Market Cockpit", layout="wide")
+st.title("Options Market Cockpit")
+st.caption("Educational research tool using public yfinance/Yahoo data. Diagnostics only, not investment advice.")
+st.warning("Market data may be delayed/stale versus broker feeds. Use broker/platform quotes for live decisions.")
 
 with st.sidebar:
-    ticker = st.text_input("Ticker", value="NVDA").upper().strip()
-    num_exp = st.slider("Upcoming expirations to load", min_value=1, max_value=12, value=6)
-    r = st.number_input("Risk-free rate", min_value=0.0, max_value=0.2, value=0.045, step=0.005, format="%.3f")
+    universe_text = st.text_area("Universe tickers (comma-separated)", value=DEFAULT_UNIVERSE, height=100)
+    tickers = [t.strip().upper() for t in universe_text.split(",") if t.strip()]
 
-try:
+universe_df, hist_map, chain30_map, warnings = load_universe_metrics(tickers)
+for w in warnings:
+    st.warning(f"Ticker skipped: {w}")
+if universe_df.empty:
+    st.error("No universe metrics available.")
+    st.stop()
+
+# optional snapshots
+tab1, tab2, tab3, tab4, tab5 = st.tabs(["Today’s Markets", "Cockpit", "Skew Monitor", "Option Chain / Scenario P&L", "Methodology / Validation"])
+
+with tab1:
+    st.subheader("Options Activity")
+    cols=["ticker","price","daily_return","total_option_volume","put_call_volume_ratio","volume_to_oi","approx_30d_iv","vrp_30d"]
+    st.dataframe(universe_df[cols].sort_values("total_option_volume", ascending=False).style.format({"daily_return":"{:.2%}","approx_30d_iv":"{:.2%}","vrp_30d":"{:.2%}"}), use_container_width=True)
+
+    st.subheader("Research Flags")
+    flagged = apply_research_flags(universe_df)
+    show=["ticker","research_flag","approx_30d_iv","rv_1m","vrp_30d","skew_steepness_30d","score"]
+    st.dataframe(flagged[show].sort_values("score", ascending=False).style.format({"approx_30d_iv":"{:.2%}","rv_1m":"{:.2%}","vrp_30d":"{:.2%}","skew_steepness_30d":"{:.2%}"}), use_container_width=True)
+
+    st.subheader("Skew Extremes")
+    tenor=st.selectbox("Tenor", ["30D","90D"], key="tenor1")
+    put_col=f"put_skew_{tenor.lower()}"; call_col=f"call_skew_{tenor.lower()}"
+    c1,c2,c3,c4=st.columns(4)
+    c1.dataframe(universe_df[["ticker",put_col]].nsmallest(5, put_col).rename(columns={put_col:"Cheap Puts"}))
+    c2.dataframe(universe_df[["ticker",put_col]].nlargest(5, put_col).rename(columns={put_col:"Rich Puts"}))
+    c3.dataframe(universe_df[["ticker",call_col]].nsmallest(5, call_col).rename(columns={call_col:"Cheap Calls"}))
+    c4.dataframe(universe_df[["ticker",call_col]].nlargest(5, call_col).rename(columns={call_col:"Rich Calls"}))
+    st.caption("Skew rankings compare option IV by moneyness within the selected universe. They are diagnostics, not recommendations.")
+
+    move_col = st.selectbox("Return horizon", ["daily_return","one_week_return","one_month_return","three_month_return"])
+    bdf = universe_df[["ticker",move_col]].sort_values(move_col)
+    bdf["color"] = np.where(bdf[move_col] >= 0, "green", "red")
+    st.plotly_chart(px.bar(bdf, x="ticker", y=move_col, color="color", color_discrete_map={"green":"#2ecc71","red":"#e74c3c"}), use_container_width=True)
+
+with tab2:
+    st.subheader("Cockpit")
+    cockpit_cols=["ticker","price","daily_return","z_score_daily_return","approx_30d_iv","approx_90d_iv","vrp_30d","one_week_return","one_month_return","three_month_return","one_week_z_score","one_month_z_score","three_month_z_score","sd_from_200ma","rv_1w","rv_1m","rv_3m","corr_spy_1m","corr_spy_3m","beta_spy_1m","beta_spy_3m","put_skew_30d","call_skew_30d","skew_steepness_30d","total_option_volume","put_call_volume_ratio"]
+    cols=[c for c in cockpit_cols if c in universe_df.columns]
+    st.dataframe(format_cockpit(universe_df[cols].sort_values("ticker")), use_container_width=True)
+
+with tab3:
+    st.subheader("Skew Monitor")
+    ticker = st.selectbox("Ticker", universe_df["ticker"].tolist(), key="skew_ticker")
+    spot = float(universe_df.loc[universe_df["ticker"]==ticker, "price"].iloc[0])
+    exp30_chain=chain30_map.get(ticker, pd.DataFrame())
+    if exp30_chain.empty:
+        st.info("No 30D-like chain available.")
+    else:
+        st.plotly_chart(iv_smile(exp30_chain, "moneyness"), use_container_width=True)
+        st.dataframe(exp30_chain[["option_type","strike","moneyness","impliedVolatility"]].head(40), use_container_width=True)
+        row = universe_df[universe_df["ticker"]==ticker].iloc[0]
+        st.write({"atm_iv_30d": row.get("approx_30d_iv"), "put_skew_30d": row.get("put_skew_30d"), "call_skew_30d": row.get("call_skew_30d"), "skew_steepness_30d": row.get("skew_steepness_30d")})
+
+with tab4:
+    ticker = st.selectbox("Ticker for chain/scenario", universe_df["ticker"].tolist(), key="chain_ticker")
     spot, expirations, last_updated = fetch_underlying_and_expirations(ticker)
-except Exception as exc:
-    st.error(f"Unable to fetch market data for {ticker}: {exc}")
-    st.stop()
+    chain = fetch_option_chain(ticker, expirations[:6], spot)
+    chain = compute_intrinsic_extrinsic(chain, spot)
+    chain = add_rv_and_relative_scores(chain, np.nan, np.nan, np.nan)
+    opt_type_sel = st.selectbox("Option type", ["both", "call", "put"], key="ot4")
+    max_spread = st.slider("Max spread %", 0.0, 1.0, 0.15, 0.01, key='sp4')
+    min_oi = st.number_input("Min open interest", min_value=0, value=100, key='oi4')
+    min_vol = st.number_input("Min volume", min_value=0, value=10, key='vol4')
+    min_extrinsic = st.number_input("Min extrinsic value", min_value=0.0, value=0.05, step=0.01, key='ex4')
+    max_iv = st.number_input("Max implied volatility", min_value=0.1, value=3.00, step=0.05, key='iv4')
+    money_rng = st.slider("Moneyness range", 0.3, 2.0, (0.85, 1.15), 0.01, key='mn4')
+    filtered=chain.copy()
+    if opt_type_sel!='both': filtered=filtered[filtered['option_type']==opt_type_sel]
+    filtered=filtered[(filtered['spread_pct']<=max_spread)&(filtered['openInterest'].fillna(0)>=min_oi)&(filtered['volume'].fillna(0)>=min_vol)&(filtered['moneyness'].between(money_rng[0],money_rng[1]))&(filtered['extrinsic_value']>=min_extrinsic)&(filtered['impliedVolatility']<=max_iv)]
+    st.caption("Deep ITM/OTM contracts can have unstable IV because tiny quote differences dominate extrinsic value.")
+    st.dataframe(filtered.head(200), use_container_width=True)
+    st.plotly_chart(iv_smile(filtered, 'moneyness'), use_container_width=True)
+    if len(filtered)>10: st.plotly_chart(iv_surface(filtered), use_container_width=True)
 
-selected_exp = expirations[:num_exp]
-try:
-    chain = fetch_option_chain(ticker, selected_exp, spot)
-except Exception as exc:
-    st.error(f"Unable to fetch option chain data: {exc}")
-    st.stop()
+    contract = st.selectbox("Contract", filtered['contractSymbol'].tolist())
+    row = filtered[filtered['contractSymbol']==contract].iloc[0]
+    base_T=float(row['time_to_expiration_years'])
+    time_shifts={"today":base_T,"+1 day":max(base_T-1/365,0),"+1 week":max(base_T-7/365,0),"halfway to expiration":base_T/2,"expiration":0.0}
+    scenarios=build_scenario_grid(spot,float(row['strike']),0.045,float(row['impliedVolatility']),base_T,str(row['option_type']),float(row['mid']),list(np.arange(-0.2,0.21,0.05)),list(np.arange(-0.2,0.21,0.05)),time_shifts)
+    selected_time=st.selectbox('Time shift', list(time_shifts.keys()))
+    st.plotly_chart(pnl_heatmap(scenarios, selected_time, 'pnl_dollars', 'P&L Dollars'), use_container_width=True)
+    st.plotly_chart(pnl_heatmap(scenarios, selected_time, 'pnl_percent', 'P&L Percent'), use_container_width=True)
+    st.write(compute_greeks(spot,float(row['strike']),base_T,0.045,float(row['impliedVolatility']),str(row['option_type'])))
 
-if chain.empty:
-    st.warning("No usable option-chain rows were returned after quality filters.")
-    st.stop()
-
-hist = __import__("yfinance").Ticker(ticker).history(period="1y", interval="1d")
-rv20 = compute_realized_volatility(hist["Close"], 20)
-rv30 = compute_realized_volatility(hist["Close"], 30)
-rv60 = compute_realized_volatility(hist["Close"], 60)
-chain = compute_intrinsic_extrinsic(chain, spot)
-chain = add_rv_and_relative_scores(chain, rv20, rv30, rv60)
-
-st.write(f"**Spot:** {spot:.2f}  |  **Last updated:** {last_updated}")
-c1, c2, c3 = st.columns(3)
-c1.metric("Realized Vol (20d)", f"{rv20:.2%}" if not np.isnan(rv20) else "N/A")
-c2.metric("Realized Vol (30d)", f"{rv30:.2%}" if not np.isnan(rv30) else "N/A")
-c3.metric("Realized Vol (60d)", f"{rv60:.2%}" if not np.isnan(rv60) else "N/A")
-
-with st.sidebar:
-    opt_type_sel = st.selectbox("Option type", ["both", "call", "put"])
-    max_spread = st.slider("Max spread %", 0.0, 1.0, 0.15, 0.01)
-    min_oi = st.number_input("Min open interest", min_value=0, value=100)
-    min_vol = st.number_input("Min volume", min_value=0, value=10)
-    min_extrinsic = st.number_input("Min extrinsic value", min_value=0.0, value=0.05, step=0.01)
-    min_extrinsic_pct = st.number_input("Min extrinsic % of mid", min_value=0.0, value=0.02, step=0.01)
-    max_iv = st.number_input("Max implied volatility", min_value=0.1, value=3.00, step=0.05)
-    money_rng = st.slider("Moneyness range", 0.3, 2.0, (0.85, 1.15), 0.01)
-    exp_filter = st.multiselect("Expirations", options=sorted(chain["expiration"].unique()), default=sorted(chain["expiration"].unique()))
-
-filtered = chain.copy()
-if opt_type_sel != "both":
-    filtered = filtered[filtered["option_type"] == opt_type_sel]
-filtered = filtered[
-    (filtered["spread_pct"] <= max_spread)
-    & (filtered["openInterest"].fillna(0) >= min_oi)
-    & (filtered["volume"].fillna(0) >= min_vol)
-    & (filtered["moneyness"].between(money_rng[0], money_rng[1]))
-    & (filtered["extrinsic_value"] >= min_extrinsic)
-    & (filtered["extrinsic_pct_of_mid"] >= min_extrinsic_pct)
-    & (filtered["impliedVolatility"] <= max_iv)
-    & (filtered["expiration"].isin(exp_filter))
-]
-
-st.subheader("Filtered option chain")
-show_cols = ["option_type", "expiration", "days_to_expiration", "lastTradeDate", "minutes_since_last_trade", "strike", "bid", "ask", "mid", "intrinsic_value", "extrinsic_value", "extrinsic_pct_of_mid", "volume", "openInterest", "impliedVolatility", "moneyness", "spread_pct", "inTheMoney"]
-st.dataframe(filtered[show_cols].style.format({"impliedVolatility": "{:.2%}", "spread_pct": "{:.2%}", "extrinsic_pct_of_mid": "{:.2%}", "moneyness": "{:.3f}", "minutes_since_last_trade": "{:.1f}"}), use_container_width=True)
-
-x_axis = st.radio("Smile x-axis", ["moneyness", "strike"], horizontal=True)
-st.plotly_chart(iv_smile(filtered, x_axis), use_container_width=True)
-if len(filtered) > 10:
-    st.plotly_chart(iv_surface(filtered), use_container_width=True)
-else:
-    st.info("Need more filtered points to render IV surface.")
-
-st.subheader("Relative richness/cheapness diagnostics")
-st.caption("Relative value scores are crude diagnostics based on current chain IV, realized volatility, and liquidity. They are not predictions and do not account for earnings, dividends, borrow, jumps, or full volatility history.")
-st.caption("Deep ITM/OTM contracts can show unstable implied volatility because small quote or underlying-price differences dominate the remaining extrinsic value. The relative-value screen filters for liquid contracts with meaningful extrinsic value and compares options within similar moneyness buckets.")
-screen_cols = ["contractSymbol", "option_type", "expiration", "moneyness_bucket", "strike", "impliedVolatility", "spread_pct", "extrinsic_value", "extrinsic_pct_of_mid", "iv_zscore_within_expiration", "relative_value_score"]
-rv_eligible = filtered.copy()
-if len(rv_eligible) < 8:
-    st.info("Too few contracts pass the eligibility filters for meaningful relative-value ranking. Try widening filters.")
-else:
-    st.markdown("**Potentially cheaper by relative IV/liquidity screen**")
-    st.dataframe(rv_eligible.sort_values("relative_value_score", ascending=False)[screen_cols].head(15), use_container_width=True)
-    st.markdown("**Potentially richer by relative IV/liquidity screen**")
-    st.dataframe(rv_eligible.sort_values("relative_value_score", ascending=True)[screen_cols].head(15), use_container_width=True)
-
-st.subheader("Scenario P&L")
-st.caption("Scenario prices are theoretical estimates. Actual option prices may differ due to market microstructure, early exercise risk, dividends, skew dynamics, and changes in supply/demand.")
-st.caption("If modeled time to expiration is zero, scenario prices collapse to intrinsic value and IV shocks have no effect. Same-day options before the close are modeled using estimated intraday time remaining until 4:00pm ET.")
-if filtered.empty:
-    st.warning("No rows available for scenario analysis after filters.")
-    st.stop()
-
-contract = st.selectbox("Select contract", filtered["contractSymbol"].tolist())
-row = filtered[filtered["contractSymbol"] == contract].iloc[0]
-
-spot_step = st.selectbox("Spot shock step", [0.025, 0.05], index=1)
-iv_step = st.selectbox("IV shock step (absolute)", [0.02, 0.05], index=1)
-spot_shocks = list(np.arange(-0.20, 0.2001, spot_step))
-iv_shocks = list(np.arange(-0.20, 0.2001, iv_step))
-dte = int(row["days_to_expiration"])
-base_T = float(row["time_to_expiration_years"])
-base_hours = float(row["hours_to_expiration"])
-time_shifts = {
-    "today": base_T,
-    "+1 day": max(base_T - (24.0 / (365.0 * 24.0)), 0.0),
-    "+1 week": max(base_T - (7.0 * 24.0 / (365.0 * 24.0)), 0.0),
-    "halfway to expiration": max(base_T / 2.0, 0.0),
-    "expiration": 0.0,
-}
-
-scenarios = build_scenario_grid(
-    S=spot, K=float(row["strike"]), r=float(r), base_iv=float(row["impliedVolatility"]), time_to_expiration_years=base_T,
-    option_type=str(row["option_type"]), current_mid=float(row["mid"]), spot_shocks=spot_shocks, iv_shocks=iv_shocks, time_shifts=time_shifts,
-)
-selected_time = st.selectbox("Time shift for heatmaps", list(time_shifts.keys()))
-shocked_T = max(time_shifts[selected_time], 0.0)
-
-st.markdown("**Selected contract summary (for heatmap validation)**")
-summary_df = pd.DataFrame([
-    {
-        "contract_symbol": contract,
-        "option_type": row["option_type"],
-        "expiration": row["expiration"],
-        "days_to_expiration": dte,
-        "hours_to_expiration": base_hours,
-        "time_to_expiration_years": base_T,
-        "strike": float(row["strike"]),
-        "underlying_price": float(spot),
-        "moneyness": float(row["moneyness"]),
-        "current_bid": float(row["bid"]),
-        "current_ask": float(row["ask"]),
-        "current_mid": float(row["mid"]),
-        "base_implied_volatility": float(row["impliedVolatility"]),
-        "intrinsic_value": float(row["intrinsic_value"]),
-        "extrinsic_value": float(row["extrinsic_value"]),
-        "extrinsic_pct_of_mid": float(row["extrinsic_pct_of_mid"]),
-        "selected_time_shift": selected_time,
-        "shocked_time_to_expiration_years": shocked_T,
-    }
-])
-st.dataframe(
-    summary_df.style.format(
-        {
-            "strike": "{:.2f}",
-            "underlying_price": "{:.2f}",
-            "moneyness": "{:.3f}",
-            "current_bid": "{:.2f}",
-            "current_ask": "{:.2f}",
-            "current_mid": "{:.2f}",
-            "base_implied_volatility": "{:.2%}",
-            "intrinsic_value": "{:.2f}",
-            "extrinsic_value": "{:.2f}",
-            "extrinsic_pct_of_mid": "{:.2%}",
-            "hours_to_expiration": "{:.2f}",
-            "time_to_expiration_years": "{:.6f}",
-            "shocked_time_to_expiration_years": "{:.6f}",
-        }
-    ),
-    use_container_width=True,
-)
-
-st.plotly_chart(pnl_heatmap(scenarios, selected_time, "pnl_dollars", "P&L Dollars"), use_container_width=True)
-st.plotly_chart(pnl_heatmap(scenarios, selected_time, "pnl_percent", "P&L Percent"), use_container_width=True)
-
-T_now = max(base_T, 0.0)
-greeks = compute_greeks(spot, float(row["strike"]), T_now, float(r), float(row["impliedVolatility"]), str(row["option_type"]))
-st.write("**Selected contract details**")
-st.json({
-    "contract": contract,
-    "type": row["option_type"],
-    "strike": float(row["strike"]),
-    "expiration": row["expiration"],
-    "days_to_expiration": dte,
-    "current_mid": float(row["mid"]),
-    "base_iv": float(row["impliedVolatility"]),
-    "greeks": greeks,
-})
-st.dataframe(scenarios.head(100), use_container_width=True)
+with tab5:
+    st.markdown("""
+### Methodology / Validation
+- Data source: yfinance/Yahoo public data; quotes may be delayed/stale.
+- Vol units: decimal internally (0.25 = 25%), percentages in UI.
+- Realized volatility: std(close-to-close returns) * sqrt(252).
+- ATM IV: approximate near-ATM average (moneyness ~0.97-1.03).
+- VRP: approx IV - realized volatility over matching horizon.
+- Skew: OTM put/call IV relative to ATM IV.
+- Beta/correlation: rolling covariance/variance and Pearson correlation vs SPY.
+- Scenario P&L: Black-Scholes theoretical values under spot/IV/time shocks.
+- Time to expiration: exact seconds to 4:00pm ET expiration proxy.
+- Not investment advice.
+""")
