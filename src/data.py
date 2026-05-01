@@ -1,11 +1,17 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 import pandas as pd
 import streamlit as st
 import yfinance as yf
 
 from src.analytics import safe_spread_pct
+
+
+def calculate_days_to_expiration(expiration: str) -> int:
+    """Calculate non-negative calendar days to expiration using date-only arithmetic."""
+    expiration_date = pd.to_datetime(expiration).date()
+    return max((expiration_date - date.today()).days, 0)
 
 
 @st.cache_data(ttl=300)
@@ -26,11 +32,9 @@ def fetch_underlying_and_expirations(ticker: str) -> tuple[float, list[str], str
 def fetch_option_chain(ticker: str, expirations: list[str], spot: float) -> pd.DataFrame:
     tk = yf.Ticker(ticker)
     rows: list[pd.DataFrame] = []
-    today = pd.Timestamp.utcnow().normalize()
     for exp in expirations:
         chain = tk.option_chain(exp)
-        exp_ts = pd.Timestamp(exp)
-        dte = int((exp_ts - today).days)
+        dte = calculate_days_to_expiration(exp)
         for side_name, side_df in [("call", chain.calls), ("put", chain.puts)]:
             if side_df.empty:
                 continue
