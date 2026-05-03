@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 import plotly.express as px
 import streamlit as st
+import streamlit.components.v1 as components
 
 from src.analytics import add_rv_and_relative_scores, build_scenario_grid, compute_greeks, compute_intrinsic_extrinsic
 from src.cockpit import format_cockpit
@@ -69,7 +70,7 @@ if section == "Today’s Markets":
     cols = ["ticker", "price", "daily_return", "total_option_volume", "put_call_volume_ratio", "volume_to_oi", "approx_30d_iv", "vrp_30d"]
     act = universe_df[cols].sort_values("total_option_volume", ascending=False)
     st.dataframe(
-        act.style.format({"price": "{:.2f}", "daily_return": "{:.2%}", "total_option_volume": "{:,.0f}", "put_call_volume_ratio": "{:.2f}", "volume_to_oi": "{:.2f}", "approx_30d_iv": "{:.1%}", "vrp_30d": "{:.1%}"}).applymap(_color_returns, subset=["daily_return", "vrp_30d"]),
+        act.style.format({"price": "{:.2f}", "daily_return": "{:.2%}", "total_option_volume": "{:,.0f}", "put_call_volume_ratio": "{:.2f}", "volume_to_oi": "{:.2f}", "approx_30d_iv": "{:.1%}", "vrp_30d": "{:.1%}"}).map(_color_returns, subset=["daily_return", "vrp_30d"]),
         use_container_width=True,
     )
 
