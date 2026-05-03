@@ -18,7 +18,15 @@ UNIVERSE_GROUPS = {
     "Credit/Commodities": ["HYG", "LQD", "SLV", "USO", "UNG"],
     "Global/Thematic": ["FXI", "EEM", "IYR", "SMH", "XBI", "KRE", "ARKK"],
 }
-META = {t: {"description": t, "category": g} for g, ts in UNIVERSE_GROUPS.items() for t in ts}
+META = {
+    "SPY": {"description": "SPDR S&P 500 ETF", "category": "Benchmark"},
+    "QQQ": {"description": "Invesco QQQ Trust", "category": "Benchmark"},
+    "IWM": {"description": "iShares Russell 2000 ETF", "category": "Benchmark"},
+    "DIA": {"description": "SPDR Dow Jones Industrial Avg ETF", "category": "Benchmark"},
+    "TLT": {"description": "iShares 20+ Year Treasury Bond ETF", "category": "Benchmark"},
+    "GLD": {"description": "SPDR Gold Shares", "category": "Benchmark"},
+}
+META.update({t: {"description": t, "category": g} for g, ts in UNIVERSE_GROUPS.items() for t in ts if t not in META})
 ALL_TICKERS = [t for ts in UNIVERSE_GROUPS.values() for t in ts]
 
 st.set_page_config(page_title="Options Market Cockpit", layout="wide")
@@ -38,7 +46,7 @@ with sel_col2:
 if not tickers:
     st.info("Select at least one ticker from the Universe Picker.")
     st.stop()
-st.write("Selected tickers:", " ".join([f"`{t}`" for t in tickers]))
+st.caption("Selected tickers appear as removable chips in the picker above.")
 
 universe_df, hist_map, chain30_map, warnings = load_universe_metrics(tickers)
 for w in warnings:
@@ -85,9 +93,29 @@ if section == "Today’s Markets":
     chart_df["color"] = np.where(chart_df[metric] >= 0, "pos", "neg")
     chart_df["description"] = chart_df["ticker"].map(lambda t: META.get(t, {}).get("description", t))
     chart_df["category"] = chart_df["ticker"].map(lambda t: META.get(t, {}).get("category", "Other"))
-    chart_df["period"] = f"{pd.Timestamp.today().date() - pd.Timedelta(days=days)} to {pd.Timestamp.today().date()}"
-    fig = px.bar(chart_df, x="ticker", y=metric, color="color", color_discrete_map={"pos": "#2ecc71", "neg": "#e74c3c"},
-                 hover_data={"ticker": True, "description": True, "category": True, metric: ":.2%" if mode == "Return" else ":.2f", "z_score": ":.2f", "approx_30d_iv": ":.1%", "period": True, "color": False})
+    start_dt = (pd.Timestamp.today() - pd.Timedelta(days=days)).strftime("%m/%d/%Y")
+    end_dt = pd.Timestamp.today().strftime("%m/%d/%Y")
+    chart_df["period"] = start_dt + " to " + end_dt
+    fig = px.bar(chart_df, x="ticker", y=metric, color="color", color_discrete_map={"pos": "#2ecc71", "neg": "#e74c3c"})
+    fig.update_traces(
+        customdata=np.stack([
+            chart_df["description"],
+            chart_df["category"],
+            chart_df[ret_col],
+            chart_df["z_score"],
+            chart_df["approx_30d_iv"],
+            chart_df["period"],
+        ], axis=1),
+        hovertemplate=(
+            "<b>TICKER:</b> %{x}<br>"
+            "<b>Description:</b> %{customdata[0]}<br>"
+            "<b>Category:</b> %{customdata[1]}<br>"
+            "<b>Return:</b> %{customdata[2]:.1%}<br>"
+            "<b>Z-Score:</b> %{customdata[3]:.2f}<br>"
+            "<b>Implied Vol:</b> %{customdata[4]:.1%}<br>"
+            "<b>Period:</b> %{customdata[5]}<extra></extra>"
+        ),
+    )
     fig.update_layout(showlegend=False, yaxis_title=mode)
     st.plotly_chart(fig, use_container_width=True)
 
