@@ -36,7 +36,7 @@ def test_atm_iv_and_skew():
 
 def test_vrp_definition():
     iv = 0.30; rv = 0.20
-    assert (iv-rv) == 0.10
+    assert abs((iv-rv) - 0.10) < 1e-12
 
 
 def test_research_flags_scoring():
