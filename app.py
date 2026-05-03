@@ -7,11 +7,13 @@ import streamlit as st
 import streamlit.components.v1 as components
 
 from src.analytics import add_rv_and_relative_scores, build_scenario_grid, compute_greeks, compute_intrinsic_extrinsic
-from src.cockpit import format_cockpit
+from src.cockpit import format_cockpit, prepare_return_horizon_data
 from src.data import fetch_option_chain, fetch_underlying_and_expirations
 from src.market_data import load_universe_metrics
 from src.plots import iv_smile, iv_surface, pnl_heatmap
 from src.research_flags import apply_research_flags
+
+from src.etf_metadata import ETF_METADATA
 
 UNIVERSE_GROUPS = {
     "Benchmark": ["SPY", "QQQ", "IWM", "DIA", "TLT", "GLD"],
@@ -19,15 +21,6 @@ UNIVERSE_GROUPS = {
     "Credit/Commodities": ["HYG", "LQD", "SLV", "USO", "UNG"],
     "Global/Thematic": ["FXI", "EEM", "IYR", "SMH", "XBI", "KRE", "ARKK"],
 }
-META = {
-    "SPY": {"description": "SPDR S&P 500 ETF", "category": "Benchmark"},
-    "QQQ": {"description": "Invesco QQQ Trust", "category": "Benchmark"},
-    "IWM": {"description": "iShares Russell 2000 ETF", "category": "Benchmark"},
-    "DIA": {"description": "SPDR Dow Jones Industrial Avg ETF", "category": "Benchmark"},
-    "TLT": {"description": "iShares 20+ Year Treasury Bond ETF", "category": "Benchmark"},
-    "GLD": {"description": "SPDR Gold Shares", "category": "Benchmark"},
-}
-META.update({t: {"description": t, "category": g} for g, ts in UNIVERSE_GROUPS.items() for t in ts if t not in META})
 ALL_TICKERS = [t for ts in UNIVERSE_GROUPS.values() for t in ts]
 
 st.set_page_config(page_title="Options Market Cockpit", layout="wide")
@@ -84,27 +77,20 @@ if section == "Today’s Markets":
     mode = st.radio("Display mode", ["Return", "Standardized Move"], horizontal=True)
     horizon_map = {"Daily": ("daily_return", 1), "Weekly": ("one_week_return", 5), "Monthly": ("one_month_return", 21), "Quarterly": ("three_month_return", 63)}
     ret_col, days = horizon_map[horizon]
-    chart_df = universe_df[["ticker", ret_col, "approx_30d_iv", "z_score_daily_return", "one_week_z_score", "one_month_z_score", "three_month_z_score"]].copy()
     zmap = {"Daily": "z_score_daily_return", "Weekly": "one_week_z_score", "Monthly": "one_month_z_score", "Quarterly": "three_month_z_score"}
-    chart_df["z_score"] = chart_df[zmap[horizon]]
-    chart_df["expected_move"] = chart_df["approx_30d_iv"] * np.sqrt(days / 252)
-    chart_df["standardized_move"] = chart_df[ret_col] / chart_df["expected_move"].replace(0, np.nan)
-    metric = ret_col if mode == "Return" else "standardized_move"
-    chart_df = chart_df.sort_values(metric)
+    chart_df = prepare_return_horizon_data(universe_df, ret_col=ret_col, z_col=zmap[horizon], days=days)
+    metric = "return" if mode == "Return" else "standardized_move"
+    chart_df = chart_df.sort_values(metric).reset_index(drop=True)
     chart_df["color"] = np.where(chart_df[metric] >= 0, "pos", "neg")
-    chart_df["description"] = chart_df["ticker"].map(lambda t: META.get(t, {}).get("description", t))
-    chart_df["category"] = chart_df["ticker"].map(lambda t: META.get(t, {}).get("category", "Other"))
-    start_dt = (pd.Timestamp.today() - pd.Timedelta(days=days)).strftime("%m/%d/%Y")
-    end_dt = pd.Timestamp.today().strftime("%m/%d/%Y")
-    chart_df["period"] = start_dt + " to " + end_dt
+    chart_df["period"] = chart_df["period_start"] + " to " + chart_df["period_end"]
     fig = px.bar(chart_df, x="ticker", y=metric, color="color", color_discrete_map={"pos": "#2ecc71", "neg": "#e74c3c"})
     fig.update_traces(
         customdata=np.stack([
             chart_df["description"],
             chart_df["category"],
-            chart_df[ret_col],
+            chart_df["return"],
             chart_df["z_score"],
-            chart_df["approx_30d_iv"],
+            chart_df["implied_vol"],
             chart_df["period"],
         ], axis=1),
         hovertemplate=(
