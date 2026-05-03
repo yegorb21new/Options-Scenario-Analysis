@@ -35,26 +35,6 @@ st.title("Options Market Cockpit")
 st.caption("Educational research tool using public yfinance/Yahoo data. Diagnostics only, not investment advice.")
 st.warning("Market data may be delayed/stale versus broker feeds. Use broker/platform quotes for live decisions.")
 
-
-# Override Streamlit single-key shortcuts (c/r) so copy behavior works normally.
-components.html(
-    """
-    <script>
-    window.addEventListener('keydown', function(e) {
-      const t = (e.target && e.target.tagName) ? e.target.tagName.toLowerCase() : '';
-      const isTyping = ['input','textarea'].includes(t) || (e.target && e.target.isContentEditable);
-      if (!isTyping && (e.key === 'c' || e.key === 'r')) {
-        e.stopPropagation();
-      }
-      if ((e.ctrlKey || e.metaKey) && (e.key === 'c' || e.key === 'C')) {
-        e.stopPropagation();
-      }
-    }, true);
-    </script>
-    """,
-    height=0,
-)
-
 with st.sidebar:
     section = st.radio("Navigate", ["Today’s Markets", "Cockpit", "Skew Monitor", "Option Chain / Scenario P&L", "Methodology / Validation"])
 
