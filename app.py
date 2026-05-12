@@ -83,16 +83,15 @@ if section == "Today’s Markets":
     chart_df = chart_df.sort_values(metric).reset_index(drop=True)
     chart_df["color"] = np.where(chart_df[metric] >= 0, "pos", "neg")
     chart_df["period"] = chart_df["period_start"] + " to " + chart_df["period_end"]
-    fig = px.bar(chart_df, x="ticker", y=metric, color="color", color_discrete_map={"pos": "#2ecc71", "neg": "#e74c3c"})
+    fig = px.bar(
+        chart_df,
+        x="ticker",
+        y=metric,
+        color="color",
+        color_discrete_map={"pos": "#2ecc71", "neg": "#e74c3c"},
+        custom_data=["description", "category", "return", "z_score", "implied_vol", "period"],
+    )
     fig.update_traces(
-        customdata=np.stack([
-            chart_df["description"],
-            chart_df["category"],
-            chart_df["return"],
-            chart_df["z_score"],
-            chart_df["implied_vol"],
-            chart_df["period"],
-        ], axis=1),
         hovertemplate=(
             "<b>TICKER:</b> %{x}<br>"
             "<b>Description:</b> %{customdata[0]}<br>"
