@@ -46,6 +46,19 @@ ETF_METADATA = {
     "URA": {"description": "Global X Uranium ETF", "category": "Thematic"},
     "URNM": {"description": "Sprott Uranium Miners ETF", "category": "Thematic"},
     "ICLN": {"description": "iShares Global Clean Energy ETF", "category": "Thematic"},
+    "AAPL": {"description": "Apple Inc.", "category": "Mega Cap Tech"},
+    "MSFT": {"description": "Microsoft Corporation", "category": "Mega Cap Tech"},
+    "NVDA": {"description": "NVIDIA Corporation", "category": "Mega Cap Tech"},
+    "GOOGL": {"description": "Alphabet Inc.", "category": "Mega Cap Tech"},
+    "AMZN": {"description": "Amazon.com, Inc.", "category": "Mega Cap Tech"},
+    "META": {"description": "Meta Platforms, Inc.", "category": "Mega Cap Tech"},
+    "TSLA": {"description": "Tesla, Inc.", "category": "Mega Cap Tech"},
+    "ADBE": {"description": "Adobe Inc.", "category": "Software"},
+    "CRM": {"description": "Salesforce, Inc.", "category": "Software"},
+    "NOW": {"description": "ServiceNow, Inc.", "category": "Software"},
+    "ORCL": {"description": "Oracle Corporation", "category": "Software"},
+    "INTU": {"description": "Intuit Inc.", "category": "Software"},
+    "SNOW": {"description": "Snowflake Inc.", "category": "Software"},
 }
 
 

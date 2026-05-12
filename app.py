@@ -22,6 +22,11 @@ UNIVERSE_GROUPS = {
     "Global/Thematic": ["FXI", "EEM", "IYR", "SMH", "XBI", "KRE", "ARKK"],
 }
 ALL_TICKERS = [t for ts in UNIVERSE_GROUPS.values() for t in ts]
+WATCHLIST_GROUPS = {
+    "Core ETFs": ALL_TICKERS,
+    "Mega Cap Tech": ["AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "TSLA"],
+    "Software": ["ADBE", "CRM", "NOW", "ORCL", "INTU", "SNOW"],
+}
 
 st.set_page_config(page_title="Options Market Cockpit", layout="wide")
 st.title("Options Market Cockpit")
@@ -34,9 +39,10 @@ with st.sidebar:
 sel_col1, sel_col2 = st.columns([3, 2])
 with sel_col2:
     with st.popover("Universe Picker"):
-        group = st.selectbox("Category", ["All"] + list(UNIVERSE_GROUPS.keys()))
-        options = ALL_TICKERS if group == "All" else UNIVERSE_GROUPS[group]
-        tickers = st.multiselect("Select tickers", options=options, default=UNIVERSE_GROUPS["Benchmark"], help="Search and select one or more tickers")
+        watchlist = st.selectbox("Watchlist", list(WATCHLIST_GROUPS.keys()))
+        options = WATCHLIST_GROUPS[watchlist]
+        default_tickers = UNIVERSE_GROUPS["Benchmark"] if watchlist == "Core ETFs" else options
+        tickers = st.multiselect("Select tickers", options=options, default=default_tickers, key=f"tickers_{watchlist}", help="Search and select one or more tickers")
 if not tickers:
     st.info("Select at least one ticker from the Universe Picker.")
     st.stop()
